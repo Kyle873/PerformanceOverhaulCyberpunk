@@ -27,8 +27,8 @@ Options::Options(HMODULE aModule)
             if(VerQueryValue(verInfo.get(), _T("\\VarFileInfo\\Translation"), reinterpret_cast<void**>(&pTranslations), &transBytes)) 
             {
                 UINT dummy;
-                char* productName = nullptr;
-                char subBlock[64];
+                TCHAR* productName = nullptr;
+                TCHAR subBlock[64];
                 for(UINT i = 0; i < (transBytes / sizeof(*pTranslations)); i++)
                 {
                     _stprintf(subBlock, _T("\\StringFileInfo\\%04x%04x\\ProductName"), pTranslations[i].Language, pTranslations[i].CodePage);
@@ -90,9 +90,6 @@ Options::Options(HMODULE aModule)
     if(configFile)
     {
         auto config = nlohmann::json::parse(configFile);
-        this->PatchAVX = config.value("avx", this->PatchAVX);
-        this->PatchSMT = config.value("smt", this->PatchSMT);
-        this->PatchVirtualInput = config.value("virtual_input", this->PatchVirtualInput);
         this->PatchEnableDebug = config.value("enable_debug", this->PatchEnableDebug);
         this->CPUMemoryPoolFraction = config.value("cpu_memory_pool_fraction", this->CPUMemoryPoolFraction);
         this->GPUMemoryPoolFraction = config.value("gpu_memory_pool_fraction", this->GPUMemoryPoolFraction);
@@ -103,23 +100,21 @@ Options::Options(HMODULE aModule)
         this->PatchDisableIntroMovies = config.value("disable_intro_movies", this->PatchDisableIntroMovies);
         this->PatchDisableVignette = config.value("disable_vignette", this->PatchDisableVignette);
         this->PatchDisableBoundaryTeleport = config.value("disable_boundary_teleport", this->PatchDisableBoundaryTeleport);
+        this->PatchDisableWin7Vsync = config.value("disable_win7_vsync", this->PatchDisableWin7Vsync);
 
         this->DumpGameOptions = config.value("dump_game_options", this->DumpGameOptions);
         this->Console = config.value("console", this->Console);
-		this->ConsoleKey = config.value("console_key", this->ConsoleKey);
+        this->ConsoleKey = config.value("console_key", this->ConsoleKey);
 
         // check old config names
         if (config.value("unlock_menu", false))
             this->PatchEnableDebug = true;
 
-        this->ConsoleChar = MapVirtualKeyA(this->ConsoleKey, MAPVK_VK_TO_CHAR);
+        this->ConsoleChar = MapVirtualKey(this->ConsoleKey, MAPVK_VK_TO_CHAR);
     }
     configFile.close();
 
     nlohmann::json config;
-    config["avx"] = this->PatchAVX;
-    config["smt"] = this->PatchSMT;
-    config["virtual_input"] = this->PatchVirtualInput;
     config["enable_debug"] = this->PatchEnableDebug;
     config["cpu_memory_pool_fraction"] = this->CPUMemoryPoolFraction;
     config["gpu_memory_pool_fraction"] = this->GPUMemoryPoolFraction;
@@ -133,6 +128,7 @@ Options::Options(HMODULE aModule)
     config["disable_intro_movies"] = this->PatchDisableIntroMovies;
     config["disable_vignette"] = this->PatchDisableVignette;
     config["disable_boundary_teleport"] = this->PatchDisableBoundaryTeleport;
+    config["disable_win7_vsync"] = this->PatchDisableWin7Vsync;
 
     std::ofstream o(configPath);
     o << config.dump(4) << std::endl;

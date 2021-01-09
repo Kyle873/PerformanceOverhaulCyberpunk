@@ -2,20 +2,25 @@
 
 struct Image
 {
-	void Initialize();
+    void Initialize();
 
-	static uint64_t MakeVersion(uint32_t aMajor, uint16_t aMinor) noexcept
+	static std::tuple<uint32_t, uint16_t> GetSupportedVersion() noexcept
 	{
-		return static_cast<uint64_t>(aMajor) << 32 | static_cast<uint64_t>(aMinor) << 16;
+        return std::make_tuple(1, 6);
 	}
 
-	std::tuple<uint32_t, uint16_t> GetVersion() const noexcept
-	{
-		return std::make_tuple(static_cast<uint32_t>(version >> 32), static_cast<uint16_t>((version >> 16) & 0xFFFF));
-	}
+    static uint64_t MakeVersion(uint32_t aMajor, uint16_t aMinor) noexcept
+    {
+        return static_cast<uint64_t>(aMajor) << 32 | static_cast<uint64_t>(aMinor) << 16;
+    }
 
-	uint64_t version{0};
-	uintptr_t base_address;
-	uint8_t* pTextStart;
-	uint8_t* pTextEnd;
+    std::tuple<uint32_t, uint16_t> GetVersion() const noexcept
+    {
+        return std::make_tuple(static_cast<uint32_t>(version >> 32), static_cast<uint16_t>((version >> 16) & 0xFFFF));
+    }
+
+    uint64_t version{0};
+    uintptr_t base_address;
+    uint8_t* pTextStart;
+    uint8_t* pTextEnd;
 };

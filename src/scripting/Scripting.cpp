@@ -5,47 +5,355 @@
 #include "Options.h"
 #include "GameOptions.h"
 
-#include "overlay/Overlay.h"
+#include <sol_imgui/sol_imgui.h>
 
-#include "reverse/Type.h"
-#include "reverse/Array.h"
-#include "reverse/BasicTypes.h"
-#include "reverse/SingletonReference.h"
-#include "reverse/StrongReference.h"
-#include "reverse/Converter.h"
-#include "reverse/WeakReference.h"
+#include <d3d12/D3D12.h>
+#include <console/Console.h>
 
-Scripting::Scripting()
+#include <reverse/Type.h>
+#include <reverse/Array.h>
+#include <reverse/BasicTypes.h>
+#include <reverse/SingletonReference.h>
+#include <reverse/StrongReference.h>
+#include <reverse/Converter.h>
+#include <reverse/WeakReference.h>
+#include <reverse/Enum.h>
+
+void Scripting::Initialize()
 {
-    Initialize();
+    m_lua.open_libraries(sol::lib::base, sol::lib::string, sol::lib::io, sol::lib::math, sol::lib::package, sol::lib::os, sol::lib::table);
+    
+    sol_ImGui::InitBindings(m_lua);
+    
+    m_lua["GetDisplayResolution"] = []() -> std::tuple<float, float>
+    {
+        auto resolution = D3D12::Get().GetResolution();
+        return
+        {
+            static_cast<float>(resolution.cx),
+            static_cast<float>(resolution.cy)
+        };
+    };
 
+    m_lua["SetTrapInputInImGui"] = [](bool trap)
+    {
+        D3D12::Get().SetTrapInputInImGui(trap);
+    };
+
+    m_lua["IsTrapInputInImGui"] = []() -> bool
+    {
+        return D3D12::Get().IsTrapInputInImGui();
+    };
+
+    m_lua["ToVector3"] = [](sol::table table) -> Vector3
+    {
+        return Vector3
+        {
+            table["x"].get_or(0.f),
+            table["y"].get_or(0.f),
+            table["z"].get_or(0.f)
+        };
+    };
+
+    m_lua.new_usertype<Scripting>("__Game",
+        sol::meta_function::construct, sol::no_constructor,
+        sol::meta_function::index, &Scripting::Index,
+        sol::meta_function::new_index, &Scripting::NewIndex);
+
+    m_lua.new_usertype<Type>("__Type",
+        sol::meta_function::construct, sol::no_constructor,
+        sol::meta_function::index, &Type::Index,
+        sol::meta_function::new_index, &Type::NewIndex);
+
+    m_lua.new_usertype<StrongReference>("StrongReference",
+        sol::meta_function::construct, sol::no_constructor,
+        sol::base_classes, sol::bases<Type>(),
+        sol::meta_function::index, &StrongReference::Index,
+        sol::meta_function::new_index, &StrongReference::NewIndex);
+
+    m_lua.new_usertype<WeakReference>("WeakReference",
+        sol::meta_function::construct, sol::no_constructor,
+        sol::base_classes, sol::bases<Type>(),
+        sol::meta_function::index, &WeakReference::Index,
+        sol::meta_function::new_index, &WeakReference::NewIndex);
+
+    m_lua.new_usertype<SingletonReference>("SingletonReference",
+        sol::meta_function::construct, sol::no_constructor,
+        sol::base_classes, sol::bases<Type>(),
+        sol::meta_function::index, &SingletonReference::Index,
+        sol::meta_function::new_index, &SingletonReference::NewIndex);
+
+    m_lua.new_usertype<ClassReference>("ClassReference",
+        sol::meta_function::construct, sol::no_constructor,
+        sol::base_classes, sol::bases<Type>(),
+        sol::meta_function::index, &ClassReference::Index,
+        sol::meta_function::new_index, &ClassReference::NewIndex);
+
+    m_lua.new_usertype<GameOptions>("GameOptions",
+        sol::meta_function::construct, sol::no_constructor,
+        "Print", &GameOptions::Print,
+        "Get", &GameOptions::Get,
+        "GetBool", &GameOptions::GetBool,
+        "GetInt", &GameOptions::GetInt,
+        "GetFloat", &GameOptions::GetFloat,
+        "Set", &GameOptions::Set,
+        "SetBool", &GameOptions::SetBool,
+        "SetInt", &GameOptions::SetInt,
+        "SetFloat", &GameOptions::SetFloat,
+        "Toggle", &GameOptions::Toggle,
+        "Dump", &GameOptions::Dump,
+        "List", &GameOptions::List);
+
+    m_lua.new_usertype<Vector3>("Vector3",
+        sol::constructors<Vector3(float, float, float), Vector3(float, float), Vector3(float), Vector3()>(),
+        sol::meta_function::to_string, &Vector3::ToString,
+        "x", &Vector3::x,
+        "y", &Vector3::y,
+        "z", &Vector3::z);
+
+    m_lua["ToVector3"] = [](sol::table table) -> Vector3
+    {
+        return Vector3
+        {
+            table["x"].get_or(0.f),
+            table["y"].get_or(0.f),
+            table["z"].get_or(0.f)
+        };
+    };
+
+    m_lua.new_usertype<Vector4>("Vector4",
+        sol::constructors<Vector4(float, float, float, float), Vector4(float, float, float), Vector4(float, float), Vector4(float), Vector4()>(),
+        sol::meta_function::to_string, &Vector4::ToString,
+        "x", &Vector4::x,
+        "y", &Vector4::y,
+        "z", &Vector4::z,
+        "w", &Vector4::w);
+
+    m_lua.new_usertype<Enum>("Enum",
+        sol::constructors<Enum(const std::string&, const std::string&), Enum(const std::string&, uint32_t)>(),
+        sol::meta_function::to_string, &Enum::ToString,
+        "value", sol::property(&Enum::GetValueName, &Enum::SetValueByName));
+
+    m_lua["ToVector4"] = [](sol::table table) -> Vector4
+    {
+        return Vector4
+        {
+            table["x"].get_or(0.f),
+            table["y"].get_or(0.f),
+            table["z"].get_or(0.f),
+            table["w"].get_or(0.f)
+        };
+    };
+
+    m_lua["GetMod"] = [this](const std::string& acName) -> sol::object
+    {
+        return GetMod(acName);
+    };
+
+    m_lua.new_usertype<EulerAngles>("EulerAngles",
+        sol::constructors<EulerAngles(float, float, float), EulerAngles(float, float), EulerAngles(float), EulerAngles()>(),
+        sol::meta_function::to_string, &EulerAngles::ToString,
+        "pitch", &EulerAngles::pitch,
+        "yaw", &EulerAngles::yaw,
+        "roll", &EulerAngles::roll);
+
+    m_lua["ToEulerAngles"] = [](sol::table table) -> EulerAngles
+    {
+        return EulerAngles
+        {
+            table["pitch"].get_or(0.f),
+            table["roll"].get_or(0.f),
+            table["yaw"].get_or(0.f)
+        };
+    };
+
+    m_lua.new_usertype<Quaternion>("Quaternion",
+        sol::constructors<Quaternion(float, float, float, float), Quaternion(float, float, float), Quaternion(float, float), Quaternion(float), Quaternion()>(),
+        sol::meta_function::to_string, &Quaternion::ToString,
+        "i", &Quaternion::i,
+        "j", &Quaternion::j,
+        "k", &Quaternion::k,
+        "r", &Quaternion::r);
+
+    m_lua["ToQuaternion"] = [](sol::table table) -> Quaternion
+    {
+        return Quaternion
+        {
+            table["i"].get_or(0.f),
+            table["j"].get_or(0.f),
+            table["k"].get_or(0.f),
+            table["r"].get_or(0.f)
+        };
+    };
+
+    m_lua.new_usertype<CName>("CName",
+        sol::constructors<CName(const std::string&), CName(uint32_t), CName(uint32_t, uint32_t), CName()>(),
+        sol::meta_function::to_string, &CName::ToString,
+        "hash_lo", &CName::hash_lo,
+        "hash_hi", &CName::hash_hi,
+        "value", sol::property(&CName::AsString));
+
+    m_lua["ToCName"] = [](sol::table table) -> CName
+    {
+        return CName
+        {
+            table["hash_lo"].get_or<uint32_t>(0),
+            table["hash_hi"].get_or<uint32_t>(0)
+        };
+    };
+
+    m_lua.new_usertype<TweakDBID>("TweakDBID",
+        sol::constructors<TweakDBID(const std::string&), TweakDBID(const TweakDBID&, const std::string&), TweakDBID(uint32_t, uint8_t), TweakDBID()>(),
+        sol::meta_function::to_string, &TweakDBID::ToString,
+        "hash", &TweakDBID::name_hash);
+
+    m_lua["ToTweakDBID"] = [](sol::table table) -> TweakDBID
+    {
+        return TweakDBID
+        {
+            table["hash"].get_or<uint32_t>(0),
+            table["length"].get_or<uint8_t>(0)
+        };
+    };
+
+    m_lua.new_usertype<ItemID>("ItemID",
+        sol::constructors<ItemID(const TweakDBID&, uint32_t, uint16_t, uint8_t), ItemID(const TweakDBID&, uint32_t, uint16_t), ItemID(const TweakDBID&, uint32_t), ItemID(const TweakDBID&), ItemID()>(),
+        sol::meta_function::to_string, &ItemID::ToString,
+        "tdbid", &ItemID::id);
+
+    m_lua["ToItemID"] = [](sol::table table) -> ItemID
+    {
+        return ItemID
+        {
+            table["id"].get_or<TweakDBID>(0),
+            table["rng_seed"].get_or<uint32_t>(2),
+            table["unknown"].get_or<uint16_t>(0),
+            table["maybe_type"].get_or<uint8_t>(0),
+        };
+    };
+
+    m_lua.new_usertype<Type::Descriptor>("Descriptor",
+        sol::meta_function::to_string, &Type::Descriptor::ToString);
+
+    m_lua["Game"] = this;
+    m_lua["GetSingleton"] = [this](const std::string& acName)
+    {
+        return this->GetSingletonHandle(acName);
+    };
+
+    m_lua["ReloadAllMods"] = [this]()
+    {
+        ReloadAllMods();
+    };
+
+    m_lua["GameDump"] = [this](Type* apType)
+    {
+        return apType ? apType->GameDump() : "Null";
+    };
+
+    m_lua["Dump"] = [this](Type* apType, bool aDetailed)
+    {
+        return apType != nullptr ? apType->Dump(aDetailed) : Type::Descriptor{};
+    };
+
+    m_lua["DumpType"] = [this](const std::string& acName, bool aDetailed)
+    {
+        auto* pRtti = RED4ext::CRTTISystem::Get();
+        auto* pType = pRtti->GetClass(RED4ext::FNV1a(acName.c_str()));
+        if (!pType || pType->GetType() == RED4ext::ERTTIType::Simple)
+            return Type::Descriptor();
+
+        const Type type(m_lua, pType);
+        return type.Dump(aDetailed);
+    };
+
+    m_lua["print"] = [](sol::variadic_args aArgs, sol::this_environment aEnvironment, sol::this_state aState)
+    {
+        std::ostringstream oss;
+        sol::state_view s(aState);
+        for (auto it = aArgs.cbegin(); it != aArgs.cend(); ++it)
+        {
+            if (it != aArgs.cbegin())
+            {
+                oss << " ";
+            }
+            std::string str = s["tostring"]((*it).get<sol::object>());
+            oss << str;
+        }
+        spdlog::info(oss.str());
+        Console::Get().Log(oss.str());
+    };
+
+    m_lua["GetAsyncKeyState"] = [](int aKeyCode) -> bool
+    {
+        return GetAsyncKeyState(aKeyCode) & 0x8000 != 0;
+    };
+
+    // execute autoexec.lua inside our default script directory
+    std::filesystem::current_path(Options::Get().CETPath / "scripts");
+    if (std::filesystem::exists("autoexec.lua"))
+        m_lua.do_file("autoexec.lua");
+    else
+    {
+        Console::Get().Log("WARNING: missing CET autoexec.lua!");
+        spdlog::warn("Scripting::Initialize() - missing CET autoexec.lua!");
+    }
+
+    // set current path for following scripts to out ScriptsPath
+    std::filesystem::current_path(Options::Get().ScriptsPath);
+
+    // load mods
+    ReloadAllMods();
+}
+
+void Scripting::TriggerOnInit() const
+{
+    m_store.TriggerOnInit();
+}
+
+void Scripting::TriggerOnUpdate(float aDeltaTime) const
+{
+    m_store.TriggerOnUpdate(aDeltaTime);
+}
+
+void Scripting::TriggerOnDraw() const
+{
+    m_store.TriggerOnDraw();
+}
+
+void Scripting::TriggerOnConsoleOpen() const
+{
+    m_store.TriggerOnConsoleOpen();
+}
+
+void Scripting::TriggerOnConsoleClose() const
+{
+    m_store.TriggerOnConsoleClose();
+}
+
+sol::object Scripting::GetMod(const std::string& acName) const
+{
+    return m_store.GetMod(acName);
+}
+
+void Scripting::ReloadAllMods()
+{
     m_store.LoadAll(m_lua);
 }
 
-Scripting& Scripting::Get()
+bool Scripting::ExecuteLua(const std::string& acCommand)
 {
-    static Scripting s_instance;
-    return s_instance;
-}
-
-const ScriptStore& Scripting::GetStore() const
-{
-    return m_store;
-}
-
-bool Scripting::ExecuteLua(const std::string& aCommand)
-{
+    // TODO: proper exception handling!
     try
     {
-        m_lua.script(aCommand);
+        m_lua.script(acCommand);
+        return true;
     }
     catch(std::exception& e)
     {
-        Overlay::Get().Log( e.what());
-        return false;
+        Console::Get().Log(e.what());
     }
-
-    return true;
+    return false;
 }
 
 size_t Scripting::Size(RED4ext::IRTTIType* apRtti)
@@ -56,9 +364,9 @@ size_t Scripting::Size(RED4ext::IRTTIType* apRtti)
     if (apRtti == pStringType)
         return sizeof(RED4ext::CString);
     if (apRtti->GetType() == RED4ext::ERTTIType::Handle)
-        return sizeof(StrongHandle);
+        return sizeof(RED4ext::Handle<RED4ext::IScriptable>);
     if (apRtti->GetType() == RED4ext::ERTTIType::WeakHandle)
-        return sizeof(WeakHandle);
+        return sizeof(RED4ext::WeakHandle<RED4ext::IScriptable>);
 
     return Converter::Size(apRtti);
 }
@@ -76,14 +384,14 @@ sol::object Scripting::ToLua(sol::state_view aState, RED4ext::CStackType& aResul
         return make_object(aState, std::string(static_cast<RED4ext::CString*>(aResult.value)->c_str()));
     if (pType->GetType() == RED4ext::ERTTIType::Handle)
     {
-        const auto handle = *static_cast<StrongHandle*>(aResult.value);
-        if (handle.handle)
+        const auto handle = *static_cast<RED4ext::Handle<RED4ext::IScriptable>*>(aResult.value);
+        if (handle)
             return make_object(aState, StrongReference(aState, handle));
     }
     else if (pType->GetType() == RED4ext::ERTTIType::WeakHandle)
     {
-        const auto handle = *static_cast<WeakHandle*>(aResult.value);
-        if (handle.handle)
+        const auto handle = *static_cast<RED4ext::WeakHandle<RED4ext::IScriptable>*>(aResult.value);
+        if (handle)
             return make_object(aState, WeakReference(aState, handle));
     }
     else if (pType->GetType() == RED4ext::ERTTIType::Array)
@@ -93,12 +401,11 @@ sol::object Scripting::ToLua(sol::state_view aState, RED4ext::CStackType& aResul
         sol::table result(aState, sol::create);
         for(auto i = 0u; i < arrayHandle.count; ++i)
         {
-            RED4ext::CStackType el;
-            el.value = arrayHandle.entries + i * Size(pArrayType);
-            el.type = pArrayType->GetInnerType();
+            auto innerType = pArrayType->GetInnerType();
 
-            RED4ext::CName hash;
-            pArrayType->GetInnerType()->GetName(hash);
+            RED4ext::CStackType el;
+            el.value = arrayHandle.entries + i * innerType->GetSize();
+            el.type = pArrayType->GetInnerType();
 
             result[i + 1] = ToLua(aState, el);
         }
@@ -113,10 +420,10 @@ sol::object Scripting::ToLua(sol::state_view aState, RED4ext::CStackType& aResul
 
         RED4ext::CName hash;
         pType->GetName(hash);
-        if (hash)
+        if (!hash.IsEmpty())
         {
             const std::string typeName = hash.ToString();
-            Overlay::Get().Log("Unhandled return type: " + typeName + " type : " + std::to_string((uint32_t)pType->GetType()));
+            Console::Get().Log("Unhandled return type: " + typeName + " type : " + std::to_string((uint32_t)pType->GetType()));
         }
     }
 
@@ -160,9 +467,26 @@ RED4ext::CStackType Scripting::ToRED(sol::object aObject, RED4ext::IRTTIType* ap
                 if (pType != nullptr)
                 {
                     if (hasData)
-                        result.value = apAllocator->New<StrongHandle>(aObject.as<StrongReference>().m_strongHandle);
+                        result.value = apAllocator->New<RED4ext::Handle<RED4ext::IScriptable>>(aObject.as<StrongReference>().m_strongHandle);
                     else
-                        result.value = apAllocator->New<StrongHandle>();
+                        result.value = apAllocator->New<RED4ext::Handle<RED4ext::IScriptable>>();
+                }
+            }
+            else if (aObject.is<WeakReference>()) // Handle Implicit Cast - Probably an awful conversion without proper ref handling but try anyway
+            {
+                auto* pSubType = static_cast<RED4ext::CClass*>(apRtti)->parent;
+                RED4ext::IRTTIType* pType = aObject.as<WeakReference*>()->m_pType;
+                while (pType != nullptr && pType != pSubType)
+                {
+                    pType = static_cast<RED4ext::CClass*>(pType)->parent;
+                }
+
+                if (pType != nullptr)
+                {
+                    if (hasData)
+                        result.value = apAllocator->New<RED4ext::Handle<RED4ext::IScriptable>>(aObject.as<WeakReference>().m_weakHandle);
+                    else
+                        result.value = apAllocator->New<RED4ext::Handle<RED4ext::IScriptable>>();
                 }
             }
         }
@@ -180,16 +504,33 @@ RED4ext::CStackType Scripting::ToRED(sol::object aObject, RED4ext::IRTTIType* ap
                 if (pType != nullptr)
                 {
                     if (hasData)
-                        result.value = apAllocator->New<WeakHandle>(aObject.as<WeakReference>().m_weakHandle);
+                        result.value = apAllocator->New<RED4ext::WeakHandle<RED4ext::IScriptable>>(aObject.as<WeakReference>().m_weakHandle);
                     else
-                        result.value = apAllocator->New<WeakHandle>();
+                        result.value = apAllocator->New<RED4ext::WeakHandle<RED4ext::IScriptable>>();
+                }
+            }
+            else if (aObject.is<StrongReference>()) // Handle Implicit Cast
+            {
+                auto* pSubType = static_cast<RED4ext::CClass*>(apRtti)->parent;
+                RED4ext::IRTTIType* pType = aObject.as<StrongReference*>()->m_pType;
+                while (pType != nullptr && pType != pSubType)
+                {
+                    pType = static_cast<RED4ext::CClass*>(pType)->parent;
+                }
+
+                if (pType != nullptr)
+                {
+                    if (hasData)
+                        result.value = apAllocator->New<RED4ext::WeakHandle<RED4ext::IScriptable>>(aObject.as<StrongReference>().m_strongHandle);
+                    else
+                        result.value = apAllocator->New<RED4ext::WeakHandle<RED4ext::IScriptable>>();
                 }
             }
         }
         else if (apRtti->GetType() == RED4ext::ERTTIType::Array)
         {
             if (!hasData)
-                result.value = apAllocator->New<Array<void*>>();
+                result.value = apAllocator->New<Array<RED4ext::ScriptInstance>>();
         }
         else
         {
@@ -198,227 +539,6 @@ RED4ext::CStackType Scripting::ToRED(sol::object aObject, RED4ext::IRTTIType* ap
     }
 
     return result;
-}
-
-void Scripting::Initialize()
-{
-    m_lua.open_libraries(sol::lib::base, sol::lib::string, sol::lib::io, sol::lib::math, sol::lib::package, sol::lib::os, sol::lib::table);
-
-    m_lua.new_usertype<Scripting>("__Game",
-        sol::meta_function::construct, sol::no_constructor,
-        sol::meta_function::index, &Scripting::Index,
-        sol::meta_function::new_index, &Scripting::NewIndex);
-
-    m_lua.new_usertype<Type>("__Type",
-        sol::meta_function::construct, sol::no_constructor,
-        sol::meta_function::index, &Type::Index,
-        sol::meta_function::new_index, &Type::NewIndex);
-
-    m_lua.new_usertype<StrongReference>("StrongReference",
-        sol::meta_function::construct, sol::no_constructor,
-        sol::base_classes, sol::bases<Type>(),
-        sol::meta_function::index, &StrongReference::Index,
-        sol::meta_function::new_index, &StrongReference::NewIndex);
-
-    m_lua.new_usertype<WeakReference>("WeakReference",
-        sol::meta_function::construct, sol::no_constructor,
-        sol::base_classes, sol::bases<Type>(),
-        sol::meta_function::index, &WeakReference::Index,
-        sol::meta_function::new_index, &WeakReference::NewIndex);
-
-    m_lua.new_usertype<SingletonReference>("SingletonReference",
-        sol::meta_function::construct, sol::no_constructor,
-        sol::base_classes, sol::bases<Type>(),
-        sol::meta_function::index, &SingletonReference::Index,
-        sol::meta_function::new_index, &SingletonReference::NewIndex);
-
-    m_lua.new_usertype<GameOptions>("GameOptions",
-        sol::meta_function::construct, sol::no_constructor,
-        "Print", &GameOptions::Print,
-        "Get", &GameOptions::Get,
-        "GetBool", &GameOptions::GetBool,
-        "GetInt", &GameOptions::GetInt,
-        "GetFloat", &GameOptions::GetFloat,
-        "Set", &GameOptions::Set,
-        "SetBool", &GameOptions::SetBool,
-        "SetInt", &GameOptions::SetInt,
-        "SetFloat", &GameOptions::SetFloat,
-        "Toggle", &GameOptions::Toggle,
-        "Dump", &GameOptions::Dump,
-        "List", &GameOptions::List);
-
-    m_lua.new_usertype<Vector3>("Vector3",
-        sol::constructors<Vector3(float, float, float), Vector3(float, float), Vector3(float), Vector3()>(),
-        sol::meta_function::to_string, &Vector3::ToString,
-        "x", &Vector3::x,
-        "y", &Vector3::y,
-        "z", &Vector3::z);
-
-    m_lua["ToVector3"] = [this](sol::table table) -> Vector3
-    {
-        return Vector3
-        {
-            table["x"].get_or(0.f),
-            table["y"].get_or(0.f),
-            table["z"].get_or(0.f)
-        };
-    };
-
-    m_lua.new_usertype<Vector4>("Vector4",
-        sol::constructors<Vector4(float, float, float, float), Vector4(float, float, float), Vector4(float, float), Vector4(float), Vector4()>(),
-        sol::meta_function::to_string, &Vector4::ToString,
-        "x", &Vector4::x,
-        "y", &Vector4::y,
-        "z", &Vector4::z,
-        "w", &Vector4::w);
-
-    m_lua["ToVector4"] = [this](sol::table table) -> Vector4
-    {
-        return Vector4
-        {
-            table["x"].get_or(0.f),
-            table["y"].get_or(0.f),
-            table["z"].get_or(0.f),
-            table["w"].get_or(0.f)
-        };
-    };
-
-    m_lua["GetMod"] = [this](const std::string& acName) -> sol::object
-    {
-        return GetStore().Get(acName);
-    };
-
-    m_lua.new_usertype<EulerAngles>("EulerAngles",
-        sol::constructors<EulerAngles(float, float, float), EulerAngles(float, float), EulerAngles(float), EulerAngles()>(),
-        sol::meta_function::to_string, &EulerAngles::ToString,
-        "pitch", &EulerAngles::pitch,
-        "yaw", &EulerAngles::yaw,
-        "roll", &EulerAngles::roll);
-
-    m_lua["ToEulerAngles"] = [this](sol::table table) -> EulerAngles
-    {
-        return EulerAngles
-        {
-            table["pitch"].get_or(0.f),
-            table["roll"].get_or(0.f),
-            table["yaw"].get_or(0.f)
-        };
-    };
-
-    m_lua.new_usertype<Quaternion>("Quaternion",
-        sol::constructors<Quaternion(float, float, float, float), Quaternion(float, float, float), Quaternion(float, float), Quaternion(float), Quaternion()>(),
-        sol::meta_function::to_string, &Quaternion::ToString,
-        "i", &Quaternion::i,
-        "j", &Quaternion::j,
-        "k", &Quaternion::k,
-        "r", &Quaternion::r);
-
-    m_lua["ToQuaternion"] = [this](sol::table table) -> Quaternion
-    {
-        return Quaternion
-        {
-            table["i"].get_or(0.f),
-            table["j"].get_or(0.f),
-            table["k"].get_or(0.f),
-            table["r"].get_or(0.f)
-        };
-    };
-
-    m_lua.new_usertype<CName>("CName",
-        sol::constructors<CName(const std::string&), CName(uint32_t), CName(uint32_t, uint32_t), CName()>(),
-        sol::meta_function::to_string, &CName::ToString,
-        "hash_lo", &CName::hash_lo,
-        "hash_hi", &CName::hash_hi);
-
-    m_lua["ToCName"] = [this](sol::table table) -> CName
-    {
-        return CName
-        {
-            table["hash_lo"].get_or<uint32_t>(0),
-            table["hash_hi"].get_or<uint32_t>(0)
-        };
-    };
-
-    m_lua.new_usertype<TweakDBID>("TweakDBID",
-        sol::constructors<TweakDBID(const std::string&), TweakDBID(const TweakDBID&, const std::string&), TweakDBID(uint32_t, uint8_t), TweakDBID()>(),
-        sol::meta_function::to_string, &TweakDBID::ToString);
-
-    m_lua["ToTweakDBID"] = [this](sol::table table) -> TweakDBID
-    {
-        return TweakDBID
-        {
-            table["hash"].get_or<uint32_t>(0),
-            table["length"].get_or<uint8_t>(0)
-        };
-    };
-
-    m_lua.new_usertype<ItemID>("ItemID",
-        sol::constructors<ItemID(const TweakDBID&, uint32_t, uint16_t, uint8_t), ItemID(const TweakDBID&, uint32_t, uint16_t), ItemID(const TweakDBID&, uint32_t), ItemID(const TweakDBID&), ItemID()>(),
-        sol::meta_function::to_string, &ItemID::ToString);
-
-    m_lua["ToItemID"] = [this](sol::table table) -> ItemID
-    {
-        return ItemID
-        {
-            table["id"].get_or<TweakDBID>(0),
-            table["rng_seed"].get_or<uint32_t>(2),
-            table["unknown"].get_or<uint16_t>(0),
-            table["maybe_type"].get_or<uint8_t>(0),
-        };
-    };
-
-    m_lua.new_usertype<Type::Descriptor>("Descriptor",
-        sol::meta_function::to_string, &Type::Descriptor::ToString);
-
-    m_lua["Game"] = this;
-    m_lua["GetSingleton"] = [this](const std::string& acName)
-    {
-        return this->GetSingletonHandle(acName);
-    };
-
-    m_lua["Dump"] = [this](Type* apType)
-    {
-        return apType != nullptr ? apType->Dump() : Type::Descriptor{};
-    };
-
-    m_lua["DumpType"] = [this](const std::string& acName)
-    {
-        auto* pRtti = RED4ext::CRTTISystem::Get();
-        auto* pType = pRtti->GetClass(RED4ext::FNV1a(acName.c_str()));
-        if (!pType || pType->GetType() == RED4ext::ERTTIType::Simple)
-            return Type::Descriptor();
-
-        Type type(m_lua, pType);
-        return type.Dump();
-    };
-
-    m_lua["print"] = [](sol::variadic_args args, sol::this_environment env, sol::this_state L)
-    {
-        std::ostringstream oss;
-        sol::state_view s(L);
-        for (auto it = args.cbegin(); it != args.cend(); ++it)
-        {
-            if (it != args.cbegin())
-            {
-                oss << " ";
-            }
-            std::string str = s["tostring"]((*it).get<sol::object>());
-            oss << str;
-        }
-        Overlay::Get().Log(oss.str());
-    };
-
-    m_lua["GetAsyncKeyState"] = [](int aKeyCode) -> bool
-    {
-        return GetAsyncKeyState(aKeyCode) & 0x8000 != 0;
-    };
-
-    // execute autoexec.lua inside our default script directory
-    std::filesystem::current_path(Options::Get().CETPath / "scripts");
-    if (std::filesystem::exists("autoexec.lua"))
-        m_lua.do_file("autoexec.lua");
-    else
-        Overlay::Get().Log("WARNING: missing CET autoexec.lua!");
 }
 
 sol::object Scripting::Index(const std::string& acName)
@@ -448,7 +568,7 @@ sol::object Scripting::GetSingletonHandle(const std::string& acName)
     auto* pType = pRtti->GetClass(RED4ext::FNV1a(acName.c_str()));
     if (!pType)
     {
-        Overlay::Get().Log("Type '" + acName + "' not found or is not initialized yet.");
+        Console::Get().Log("Type '" + acName + "' not found or is not initialized yet.");
         return sol::nil;
     }
 
@@ -465,7 +585,7 @@ sol::protected_function Scripting::InternalIndex(const std::string& acName)
         auto code = this->Execute(name, args, env, L, result);
         if(!code)
         {
-            Overlay::Get().Log("Error: " + result);
+            Console::Get().Log("Error: " + result);
         }
         return code;
     });
@@ -473,7 +593,7 @@ sol::protected_function Scripting::InternalIndex(const std::string& acName)
     return NewIndex(acName, std::move(obj));
 }
 
-sol::object Scripting::Execute(const std::string& aFuncName, sol::variadic_args aArgs, sol::this_environment env, sol::this_state L, std::string& aReturnMessage)
+sol::object Scripting::Execute(const std::string& aFuncName, sol::variadic_args aArgs, sol::this_environment env, sol::this_state L, std::string& aReturnMessage) const
 {
     auto* pRtti = RED4ext::CRTTISystem::Get();
 
@@ -481,6 +601,7 @@ sol::object Scripting::Execute(const std::string& aFuncName, sol::variadic_args 
 
     static const auto hashcpPlayerSystem = RED4ext::FNV1a("cpPlayerSystem");
     static const auto hashGameInstance = RED4ext::FNV1a("ScriptGameInstance");
+    auto* pGIType = pRtti->GetType(RED4ext::FNV1a("ScriptGameInstance"));
 
     auto* pPlayerSystem = pRtti->GetClass(hashcpPlayerSystem);
     auto* gameInstanceType = pRtti->GetClass(hashGameInstance);
@@ -496,24 +617,6 @@ sol::object Scripting::Execute(const std::string& aFuncName, sol::variadic_args 
         }
     }
 
-    if (pFunc->params.size - 1 != aArgs.size())
-    {
-        aReturnMessage = "Function '" + aFuncName + "' expects " +
-            std::to_string(pFunc->params.size - 1) + " parameters, not " +
-            std::to_string(aArgs.size()) + ".";
-
-        return sol::nil;
-    }
-
-    const auto* engine = RED4ext::CGameEngine::Get();
-    auto* unk10 = engine->framework->gameInstance;
-
-    using CStackType = RED4ext::CStackType;
-    std::vector<CStackType> args(aArgs.size() + 1);
-
-    args[0].type = pFunc->params[0]->type;
-    args[0].value = &unk10;
-
     // 8KB should cut it
     static thread_local TiltedPhoques::ScratchAllocator s_scratchMemory(1 << 13);
     struct ResetAllocator
@@ -525,17 +628,51 @@ sol::object Scripting::Execute(const std::string& aFuncName, sol::variadic_args 
     };
     ResetAllocator ___allocatorReset;
 
+    using CStackType = RED4ext::CStackType;
+    const auto* engine = RED4ext::CGameEngine::Get();
+    auto* unk10 = engine->framework->gameInstance;
+
+    RED4ext::CName name;
+    uint8_t argOffset = 0;
+
+    if (pFunc->params.size > 0)
+    {
+        auto* pType = pFunc->params[0]->type;
+        // check if the first argument is expected to be ScriptGameInstance
+        if (pType == pGIType)
+        {
+            argOffset = 1;
+        }
+    }
+
+    std::vector<CStackType> args(aArgs.size() + argOffset);
+
+    if (pFunc->params.size - argOffset != aArgs.size())
+    {
+        aReturnMessage = "Function '" + aFuncName + "' expects " +
+            std::to_string(pFunc->params.size - argOffset) + " parameters, not " +
+            std::to_string(aArgs.size()) + ".";
+
+        return sol::nil;
+    }
+
+    if (argOffset > 0)
+    {
+        // Inject the ScriptGameInstance into first argument
+        args[0].type = pFunc->params[0]->type;
+        args[0].value = &unk10;
+    }
+
     for (auto i = 0ull; i < aArgs.size(); ++i)
     {
-        args[i + 1ull] = ToRED(aArgs[i].get<sol::object>(), pFunc->params[i + 1ull]->type, &s_scratchMemory);
+        args[i + argOffset] = ToRED(aArgs[i].get<sol::object>(), pFunc->params[i + argOffset]->type, &s_scratchMemory);
 
-        if(!args[i + 1ull].value)
+        if(!args[i + argOffset].value)
         {
-            auto* pType = pFunc->params[i + 1]->type;
+            auto* pType = pFunc->params[i + argOffset]->type;
 
-            RED4ext::CName name;
             pType->GetName(name);
-            if (name)
+            if (!name.IsEmpty())
             {
                 const auto typeName = name.ToString();
                 aReturnMessage = "Function '" + aFuncName + "' parameter " + std::to_string(i) + " must be " + typeName + ".";
@@ -555,8 +692,7 @@ sol::object Scripting::Execute(const std::string& aFuncName, sol::variadic_args 
         result.type = pFunc->returnType->type;
     }
 
-    auto* pScriptable = static_cast<RED4ext::IScriptable*>(unk10->GetInstance(pPlayerSystem));
-
+    auto* pScriptable = unk10->GetInstance(pPlayerSystem);
     RED4ext::CStack stack(pScriptable, args.data(), static_cast<uint32_t>(args.size()), hasReturnType ? &result : nullptr, 0);
 
     const auto success = pFunc->Execute(&stack);

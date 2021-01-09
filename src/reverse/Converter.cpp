@@ -2,9 +2,6 @@
 
 #include "Converter.h"
 
-#include "BasicTypes.h"
-#include "LuaRED.h"
-
 auto s_metaVisitor = [](auto... args) {
     return [=](auto&& f) mutable { f(args...); };
 }(
@@ -24,7 +21,9 @@ auto s_metaVisitor = [](auto... args) {
     LuaRED<EulerAngles, "EulerAngles">(),
     LuaRED<ItemID, "gameItemID">(),
     LuaRED<TweakDBID, "TweakDBID">(),
-    LuaRED<CName, "CName">()
+    CNameConverter(),
+    EnumConverter(),
+    ClassConverter()
     );
 
 size_t Converter::Size(RED4ext::IRTTIType* apRtti)

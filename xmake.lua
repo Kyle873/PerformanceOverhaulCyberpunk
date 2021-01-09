@@ -1,18 +1,19 @@
 set_languages("cxx17")
 
-add_requires("spdlog", "nlohmann_json", "minhook", "imgui", "sol2", "tiltedcore", { external = false })
+add_requires("spdlog", "nlohmann_json", "minhook", "imgui", "sol2", "tiltedcore", {configs = {cxflags = "/DNDEBUG"}, external = false }) -- configs = {cxflags = "/DNDEBUG"} should not be needed when 'debug' is 'false' (default), but for some reason we still pull in debug packages!!!
 
 add_rules("mode.debug", "mode.release")
 
 if is_mode("release") then
     add_ldflags("/LTCG", "/OPT:REF")
     add_cxflags("/Ot", "/GL", "/Ob2", "/Oi", "/GS-")
+    add_defines("NDEBUG")
 
     set_optimize("fastest")
 end
 
-add_cxflags("/std:c++latest")
-add_defines("RED4EXT_STATIC_LIB")
+add_cxflags("/std:c++latest", "/bigobj", "/MP")
+add_defines("RED4EXT_STATIC_LIB", "UNICODE")
 
 target("RED4ext.SDK")
     set_kind("static")
@@ -21,7 +22,7 @@ target("RED4ext.SDK")
     add_includedirs("vendor/RED4ext.SDK/include/", { public = true })
 
 target("cyber_engine_tweaks")
-    add_defines("KIERO_USE_MINHOOK=1", "KIERO_INCLUDE_D3D12=1", "IMGUI_IMPL_WIN32_DISABLE_GAMEPAD", "WIN32_LEAN_AND_MEAN", "NOMINMAX", "SOL_NO_EXCEPTIONS")
+    add_defines("WIN32_LEAN_AND_MEAN", "NOMINMAX", "SOL_ALL_SAFETIES_ON")
     set_pcxxheader("src/stdafx.h") -- see: https://github.com/xmake-io/xmake/issues/1171#issuecomment-751421178
     set_kind("shared")
     set_filename("cyber_engine_tweaks.asi")

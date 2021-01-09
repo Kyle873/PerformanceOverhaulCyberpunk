@@ -1,9 +1,12 @@
 #include <stdafx.h>
 
-#include <overlay/Overlay.h>
-
 #include "Image.h"
 #include "Options.h"
+
+#include "d3d12/D3D12.h"
+#include "console/Console.h"
+#include "scripting/LuaVM.h"
+#include "window/window.h"
 
 #pragma comment( lib, "dbghelp.lib" )
 #pragma comment(linker, "/DLL")
@@ -11,7 +14,6 @@
 void EnableDebugPatch(Image* apImage);
 void VirtualInputPatch(Image* apImage);
 void SmtAmdPatch(Image* apImage);
-void PatchAvx(Image* apImage);
 void StartScreenPatch(Image* apImage);
 void RemovePedsPatch(Image* apImage);
 void OptionsPatch(Image* apImage);
@@ -24,11 +26,6 @@ static HANDLE s_modInstanceMutex = nullptr;
 
 static void Initialize(HMODULE mod)
 {
-    s_modInstanceMutex = CreateMutex(NULL, TRUE, _T("Cyber Engine Tweaks Module Instance"));
-    if (s_modInstanceMutex == nullptr) {
-        return;
-    }
-
     MH_Initialize();
 
     Options::Initialize(mod);
@@ -37,14 +34,16 @@ static void Initialize(HMODULE mod)
     if (!options.IsCyberpunk2077())
         return;
 
-    if(options.PatchSMT)
-        SmtAmdPatch(&options.GameImage);
+    if(options.GameImage.GetVersion() != Image::GetSupportedVersion())
+    {
+        auto [major, minor] = Image::GetSupportedVersion();
+        spdlog::error("Unsupported game version! Only {}.{:02d} is supported.", major, minor);
+        return;
+    }
 
-    if (options.PatchAVX && options.GameImage.version <= Image::MakeVersion(1, 4))
-        PatchAvx(&options.GameImage);
-
-    if (options.PatchVirtualInput)
-        VirtualInputPatch(&options.GameImage);
+    s_modInstanceMutex = CreateMutex(NULL, TRUE, _T("Cyber Engine Tweaks Module Instance"));
+    if (s_modInstanceMutex == nullptr)
+        return;
 
     if (options.PatchEnableDebug)
         EnableDebugPatch(&options.GameImage);
@@ -69,8 +68,14 @@ static void Initialize(HMODULE mod)
 
     OptionsInitHook(&options.GameImage);
 
+    Window::Initialize();
+
+    LuaVM::Initialize();
+
     if(options.Console)
-        Overlay::Initialize(&options.GameImage);
+        Console::Initialize();
+
+    D3D12::Initialize();
 
     MH_EnableHook(MH_ALL_HOOKS);
 
@@ -82,7 +87,7 @@ static void Shutdown()
     if (s_modInstanceMutex)
     {
         if(Options::Get().Console)
-            Overlay::Shutdown();
+            Console::Shutdown();
 
         MH_DisableHook(MH_ALL_HOOKS);
         MH_Uninitialize();

@@ -4,18 +4,10 @@
 
 #include "Options.h"
 
-ScriptStore::ScriptStore()
-{
-    
-}
-
-ScriptStore::~ScriptStore()
-{
-
-}
-
 void ScriptStore::LoadAll(sol::state_view aStateView)
 {
+    m_contexts.clear();
+
     const auto cScriptsPath = Options::Get().ScriptsPath;
 
     for (const auto& file : std::filesystem::directory_iterator(cScriptsPath))
@@ -35,14 +27,10 @@ void ScriptStore::LoadAll(sol::state_view aStateView)
             m_contexts.emplace(name, std::move(ctx));
         }
         else
+        {
             spdlog::warn("Mod {} failed to load!", file.path().string());
+        }
     }
-}
-
-void ScriptStore::TriggerOnUpdate() const
-{
-    for (const auto& kvp : m_contexts)
-        kvp.second.TriggerOnUpdate();
 }
 
 void ScriptStore::TriggerOnInit() const
@@ -51,11 +39,35 @@ void ScriptStore::TriggerOnInit() const
         kvp.second.TriggerOnInit();
 }
 
-sol::object ScriptStore::Get(const std::string& acName) const
+void ScriptStore::TriggerOnUpdate(float aDeltaTime) const
+{
+    for (const auto& kvp : m_contexts)
+        kvp.second.TriggerOnUpdate(aDeltaTime);
+}
+
+void ScriptStore::TriggerOnDraw() const
+{
+    for (const auto& kvp : m_contexts)
+        kvp.second.TriggerOnDraw();
+}
+
+void ScriptStore::TriggerOnConsoleOpen() const
+{
+    for (const auto& kvp : m_contexts)
+        kvp.second.TriggerOnConsoleOpen();
+}
+
+void ScriptStore::TriggerOnConsoleClose() const
+{
+    for (const auto& kvp : m_contexts)
+        kvp.second.TriggerOnConsoleClose();
+}
+
+sol::object ScriptStore::GetMod(const std::string& acName) const
 {
     const auto itor = m_contexts.find(acName);
     if (itor != std::end(m_contexts))
-        return itor->second.GetObject();
+        return itor->second.GetRootObject();
 
     return sol::nil;
 }

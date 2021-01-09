@@ -5,15 +5,15 @@
 
 struct StrongReference : Type
 {
-    StrongReference(sol::state_view aView, StrongHandle aStrongHandle);
-	~StrongReference();
-	
+    StrongReference(sol::state_view aView, RED4ext::Handle<RED4ext::IScriptable> aStrongHandle);
+    ~StrongReference();
+    
 protected:
 
-	virtual RED4ext::IScriptable* GetHandle();
-	
+    virtual RED4ext::ScriptInstance GetHandle();
+    
 private:
-	friend struct Scripting;
-	
-    StrongHandle m_strongHandle;
+    friend struct Scripting;
+    
+    RED4ext::Handle<RED4ext::IScriptable> m_strongHandle;
 };
